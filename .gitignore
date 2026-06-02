@@ -1,0 +1,39 @@
+# ROS/colcon build and log directories
+build/
+log/
+**/build/
+**/log/
+
+# Python bytecode and cache artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Python tooling caches
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.pyre/
+.hypothesis/
+.tox/
+.nox/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Coverage and test outputs
+.coverage
+.coverage.*
+htmlcov/
+
+# Distribution / packaging artifacts
+dist/
+build_*/
+*.egg-info/
+.eggs/
+
+# Notebook artifacts
+.ipynb_checkpoints/

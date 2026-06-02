@@ -376,17 +376,17 @@ class arm:
                             i+1
                     # print statements for error inside list
                     if(found1 == False):
-                        print 'Error in ', inspect.stack()[1][3], 'list should be made up of', type_list[i+1],'and not of'
+                        print('Error in ', inspect.stack()[1][3], 'list should be made up of', type_list[i+1], 'and not of')
                         print_type1 = ' '
                         for k in range(len(input)):
                             print_medium = ' ' + str(type(input[k]))
                             print_type1 += print_medium
-                        print print_type1
+                        print(print_type1)
                     else:
                         return True
         # not of type_list print state for this error inside
         if (found == False):
-            print 'Error in ', inspect.stack()[1][3], 'input is of type', input, 'and is not one of:'
+            print('Error in ', inspect.stack()[1][3], 'input is of type', input, 'and is not one of:')
             print_type2 = ''
             # skip_length
             i = 0
@@ -396,7 +396,7 @@ class arm:
                 if (type_list[i] == list):
                     i += 1
                 i += 1
-            print print_type2
+            print(print_type2)
         return False
 
     def __check_list_length(self, check_list, check_length):
@@ -409,7 +409,7 @@ class arm:
         if (len(check_list) == check_length):
             return True
         else:
-            print 'input is of size', len(check_list), 'but required size is', check_length
+            print('input is of size', len(check_list), 'but required size is', check_length)
             # sperspace = new_module('superspace')
             # sperspace.check_list = check_list
             # console = Console({'superspace': superspace})

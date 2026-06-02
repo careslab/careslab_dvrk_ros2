@@ -1,4 +1,4 @@
-from dvrk.arm import *
+from arm import *
 
 class psm(arm):
     """Simple robot API wrapping around ROS messages
@@ -32,4 +32,4 @@ class psm(arm):
         if (set_jaw >= -10.0 * math.pi / 180.0 and set_jaw <= 80.0 * math.pi / 180.0):
             self.set_jaw_position_publisher.publish(set_jaw)
         else:
-            print 'not a valid jaw position'
+            print('not a valid jaw position')
