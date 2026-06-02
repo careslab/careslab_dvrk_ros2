@@ -1,0 +1,20 @@
+<library path="src">
+  <class name="My Plugin" type="dvrk_cares_rqt_plugin.careslab_module.MyPlugin" base_class_type="rqt_gui_py::Plugin">
+    <description>
+      CARES lab plugin for control and manipulation of developed applications.
+    </description>
+    <qtgui>
+      <!-- optional grouping...
+      <group>
+        <label>Group</label>
+      </group>
+      <group>
+        <label>Subgroup</label>
+      </group>
+      -->
+      <label>CARES Lab Plugin</label>
+      <icon type="theme">media-playback-start</icon>
+      <statustip>Run/Stop/Manipulate CARES lab developed applications like autocamera, voice, VR, etc..</statustip>
+    </qtgui>
+  </class>
+</library>

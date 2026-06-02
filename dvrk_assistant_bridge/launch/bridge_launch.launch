@@ -1,0 +1,3 @@
+<launch>
+<node pkg = "dvrk_assistant_bridge" name="" type="bridge"/>
+</launch>

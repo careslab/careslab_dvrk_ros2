@@ -1,0 +1,97 @@
+text,label
+Could you follow the right tool for me,TR
+Would you kindly follow the right tool,TR
+follow the right tool now,TR
+Follow the right tool,TR
+follow the right tool please,TR
+Can you follow the right tool,TR
+follow the right tool immediately,TR
+follow the right tool ASAP,TR
+track the left tool immediately,TL
+Please track the left tool,TL
+Can you track the left tool,TL
+track the left tool please,TL
+Track the left tool,TL
+track the left tool now,TL
+track the left tool ASAP,TL
+Would you kindly track the left tool,TL
+track the middle tool please,TM
+Please track the middle tool,TM
+Can you track the middle tool,TM
+Would you kindly track the middle tool,TM
+track the middle tool immediately,TM
+track the middle tool ASAP,TM
+track the middle tool now,TM
+Could you track the middle tool for me,TM
+start now now,ST
+Can you start now,ST
+start now immediately.,ST
+I need you to start now,ST
+start now ASAP,ST
+Could you start now for me?,ST
+Would you kindly start now?,ST
+Please start now.,ST
+I need you to halt now.,SX
+Could you halt now for me?,SX
+halt now immediately.,SX
+Can you halt now?,SX
+Would you kindly halt now?,SX
+halt now ASAP.,SX
+Halt now.,SX
+halt now now!,SX
+Would you kindly keep the left tool in view?,KL
+Keep the left tool in view.,KL
+Can you keep the left tool in view?,KL
+keep the left tool in view ASAP.,KL
+keep the left tool in view now!,KL
+Please keep the left tool in view.,KL
+Could you keep the left tool in view for me?,KL
+I need you to keep the left tool in view.,KL
+focus right and stay please.,KR
+focus right and stay ASAP.,KR
+Would you kindly focus right and stay?,KR
+I need you to focus right and stay.,KR
+Could you focus right and stay for me?,KR
+focus right and stay immediately.,KR
+focus right and stay now!,KR
+Focus right and stay.,KR
+Would you kindly locate the instruments?,FT
+Could you locate the instruments for me?,FT
+Locate the instruments.,FT
+Can you locate the instruments?,FT
+locate the instruments ASAP.,FT
+Please locate the instruments.,FT
+locate the instruments please.,FT
+locate the instruments now!,FT
+Could you snap a photo for me?,TP
+Can you snap a photo?,TP
+Please snap a photo.,TP
+snap a photo please.,TP
+I need you to snap a photo.,TP
+snap a photo ASAP.,TP
+Would you kindly snap a photo?,TP
+snap a photo now!,TP
+Begin video capture.,SV
+begin video capture immediately.,SV
+I need you to begin video capture.,SV
+Would you kindly begin video capture?,SV
+Could you begin video capture for me?,SV
+begin video capture now!,SV
+begin video capture ASAP.,SV
+begin video capture please.,SV
+Can you stop capturing footage?,XV
+Stop capturing footage.,XV
+Would you kindly stop capturing footage?,XV
+stop capturing footage immediately.,XV
+Please stop capturing footage.,XV
+stop capturing footage ASAP.,XV
+Could you stop capturing footage for me?,XV
+stop capturing footage now!,XV
+Where's the nearest coffee shop?,NV
+What's the weather today?,NV
+This clamp is not working.,NV
+Turn on the lights.,NV
+Is gravity active today?,NV
+Play my favorite song.,NV
+What time is it?,NV
+Can you order lunch?,NV
