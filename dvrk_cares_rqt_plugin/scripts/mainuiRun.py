@@ -5,7 +5,9 @@ from PyQt5 import QtCore, QtGui, QtWidgets
 from PyQt5.uic import loadUi
 
 from mainui import Ui_MainWindow
-import rospy
+import rclpy
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, DurabilityPolicy
 from std_msgs.msg import String, Float32, Bool, Int16, Empty
 import threading
 
@@ -13,13 +15,39 @@ class MainGUIConnections(QtWidgets.QMainWindow):
     def __init__(self,ui):
         super(MainGUIConnections, self).__init__()
         self.ui = ui
-        threading.Thread(target=lambda: rospy.init_node("{}_beacon".format("GUI"), disable_signals=True, anonymous=True)).start()
+        
+        if not rclpy.ok():
+            rclpy.init()
+        
+        self.node = Node("GUI_beacon")
+        
+        self.executor = rclpy.executors.SingleThreadedExecutor()
+        self.executor.add_node(self.node)
+        self.thread = threading.Thread(target=self.executor.spin, daemon=True)
+        self.thread.start()
+        
+        latch_qos = QoSProfile(
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL
+        )
+        
         self.pubDict = {}
-        self.pubDict["autocamRun"] = rospy.Publisher("/assistant/autocamera/run", Bool, queue_size=10)
-        self.pubDict["autocamTrack"] = rospy.Publisher("/assistant/autocamera/track", String, queue_size=10)
-        self.pubDict["home"] = rospy.Publisher('/assistant/dvrk_home', Empty, queue_size=10)
-        self.pubDict["dvrk_on"] = rospy.Publisher('/assistant/dvrk_on', Empty, latch=True, queue_size=1)
-        self.pubDict["dvrk_off"] = rospy.Publisher('/assistant/dvrk_off', Empty, latch=True, queue_size=1)
+        self.pubDict["autocamRun"] = self.node.create_publisher(
+            Bool, "/assistant/autocamera/run", 10
+        )
+        self.pubDict["autocamTrack"] = self.node.create_publisher(
+            String, "/assistant/autocamera/track", 10
+        )
+        self.pubDict["home"] = self.node.create_publisher(
+            Empty, "/assistant/dvrk_home", 10
+        )
+        
+        self.pubDict["dvrk_on"] = self.node.create_publisher(
+            Empty, "/assistant/dvrk_on", latch_qos
+        )
+        self.pubDict["dvrk_off"] = self.node.create_publisher(
+            Empty, "/assistant/dvrk_off", latch_qos
+        )
         self.ConnectGUISetUpROS()
 
     def ConnectGUISetUpROS(self):
