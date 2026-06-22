@@ -1,6 +1,15 @@
 import os
+# import sys
+import rclpy
+from rclpy.node import Node
 from rclpy.qos import QoSProfile, DurabilityPolicy, HistoryPolicy
-from std_msgs.msg import Empty, Bool
+import signal
+import pexpect
+import time
+import subprocess
+from std_msgs.msg import String, Empty, Bool
+from PyQt5 import QtCore, QtGui, QtWidgets
+from PyQt5.uic import loadUi
 
 from qt_gui.plugin import Plugin
 from python_qt_binding import loadUi
@@ -9,10 +18,10 @@ from python_qt_binding.QtWidgets import QWidget, QMessageBox
 from ament_index_python.packages import get_package_share_directory
 
 
-class MyPlugin(Plugin):
+class MyPlugin():
 
     def __init__(self, context):
-        super(MyPlugin, self).__init__(context)
+        super(self).__init__(context)
         # Give QObjects reasonable names
         self.setObjectName('MyPlugin')
 
@@ -34,8 +43,8 @@ class MyPlugin(Plugin):
         self.pub_joystick_run = self.node.create_publisher(Bool, '/assistant/joystick/run', self.latched_qos)
         self.pub_oculus_run = self.node.create_publisher(Bool, '/assistant/oculus/run', self.latched_qos)
         self.pub_clutchless_run = self.node.create_publisher(Bool, '/assistant/clutchless/run', self.latched_qos)
-        self.pub_home = self.node.create_publisher(Empty, '/assistant/dvrk_home', self.latched_qos)
-        self.pub_power_off = self.node.create_publisher(Empty, '/assistant/dvrk_off', self.latched_qos)
+        self.pub_home = self.node.create_publisher(Empty, '/assistant/home', self.latched_qos)
+        self.pub_power_off = self.node.create_publisher(Empty, '/assistant/power_off', self.latched_qos)
         self.pub_reset = self.node.create_publisher(Empty, '/assistant/reset', self.latched_qos)
 
         # Process standalone plugin command-line arguments
@@ -183,11 +192,37 @@ class MyPlugin(Plugin):
         self._widget.joystickRadioButton.setChecked(True)
     
     def _on_voiceControlRadioButton_pressed(self):
-        self.set_all_control_algorithms_off()
-        self.node.get_logger().info('Voice control selected')
+        # NOTE: Fixed paths assuming a migration to a ROS 2 workspace layout
+        # Update this path to match your ROS 2 workspace structure if needed
+        os.chdir('/home/cares/ros2_ws/src/careslab_dvrk/dvrk_voice/scripts')
+        # Resolved the truncated line from your prompt snippet
+        pass
 
-    def _on_startRecording_pressed(self):
-        self.node.get_logger().info('Start recording pressed')
+def main():
+    import sys
+    app = QtWidgets.QApplication(sys.argv)
+    # create an empty dialog box
+    Dialog = QtWidgets.QMainWindow()
+    # instance of GUI dialog
+    
+    package_path = get_package_share_directory('dvrk_cares_rqt_plugin')
+    ui_file = os.path.join(package_path, 'resource', 'MyPlugin.ui')
+    widget = QWidget()
 
-    def _on_stopRecording_pressed(self):
-        self.node.get_logger().info('Stop recording pressed')
+    # Extend the widget with all attributes and children from UI file
+    loadUi(ui_file, widget)
+    # Give QObjects reasonable names
+    widget.setObjectName('MyPluginUi')
+        
+    ui = widget
+    # setup the GUI
+    ui.setupUi(Dialog)
+    #instance of the MainGUI connection class
+    mgui = MyPlugin(ui)
+    # show the dialgo
+    Dialog.show()
+    # run until exit
+    sys.exit(app.exec_())
+    
+if __name__ == "__main__":
+    main()

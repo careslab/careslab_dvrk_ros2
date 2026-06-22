@@ -1,5 +1,5 @@
 <library path="src">
-  <class name="My Plugin" type="dvrk_cares_rqt_plugin.careslab_module.MyPlugin" base_class_type="rqt_gui_py::Plugin">
+  <class name="cares_rqt_plugin" type="dvrk_cares_rqt_plugin.careslab_module.MyPlugin" base_class_type="rqt_gui_py::Plugin">
     <description>
       CARES lab plugin for control and manipulation of developed applications.
     </description>
