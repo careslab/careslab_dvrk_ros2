@@ -7,20 +7,16 @@ from __future__ import division
 from __common_imports__ import *
 
 import sys
-import rospy
-import roslib
+import rclpy
 import xacro
 import re
 import pdb
 import os
-import hrl_geom
 import geometry_msgs
 import cv2
-import tf
+import tf2_ros
 import numpy as np
-
-from hrl_geom.pose_converter import PoseConv
-from hrl_geom import transformations
+from rclpy.node import Node
 
 
 class Autocamera:
@@ -34,6 +30,10 @@ class Autocamera:
         """!
             Class initialization function
         """
+        if not rclpy.ok():
+            rclpy.init(args=None)
+        self._node = Node('autocamera_algorithm')
+
         self.method_number = 1
         self.z = 0.0
         self.deadzone_margin_3d = .15
@@ -44,14 +44,10 @@ class Autocamera:
         # ECM to World transform
         self.__T_ecm__ = None
         
-        self.ecm_robot = URDF.from_parameter_server('/dvrk_ecm/robot_description')
-        self.ecm_kin = KDLKinematics(self.ecm_robot, self.ecm_robot.links[0].name, self.ecm_robot.links[-1].name)
+        self.psm1_kin = get_psm1_chain()      
+        self.ecm_kin = get_ecm_chain()
+        self.psm2_kin = get_psm2_chain()
         
-        self.psm1_robot = URDF.from_parameter_server('/dvrk_psm1/robot_description')
-        self.psm1_kin = KDLKinematics(self.psm1_robot, self.psm1_robot.links[0].name, self.psm1_robot.links[-1].name)
-        
-        self.psm2_robot = URDF.from_parameter_server('/dvrk_psm2/robot_description')
-        self.psm2_kin = KDLKinematics(self.psm2_robot, self.psm2_robot.links[0].name, self.psm2_robot.links[-1].name)
         self.zoom_percentage = 1
         
         self.tool_timer = {'last_psm1_pos':None, 'last_psm2_pos':None, 'psm1_stay_start_time':0, 'psm2_stay_start_time':0, 'psm1_stationary_duration':0, 'psm2_stationary_duration':0}
@@ -73,17 +69,9 @@ class Autocamera:
         self.logerror("autocamera_initialized")
 
         #Reenu added below lines for dvrk_safety(psm_safety)
-        self.psm1_pos_transformed = rospy.Publisher('/autocamera/PSM1/transformed_position', Point, queue_size=1, tcp_nodelay=True)
-        self.psm2_pos_transformed = rospy.Publisher('/autocamera/PSM2/transformed_position', Point, queue_size=1, tcp_nodelay=True)
-        
-
-    def set_method(self, n):
-        """!
-            Determines which autonomous camera method will be used
-            @param n : 1 or 2
-        """
-        self.method_number = n
-    
+        self.psm1_pos_transformed = self._node.create_publisher(Point, '/autocamera/PSM1/transformed_position', 1)
+        self.psm2_pos_transformed = self._node.create_publisher(Point, '/autocamera/PSM2/transformed_position', 1)
+           
     def set_keep_pos(self, tool, joint):
         kinematics = lambda name: self.psm1_kin if name == 'psm1' else self.psm2_kin if name == 'psm2' else self.ecm_kin 
         clean_joints = {}
@@ -104,7 +92,7 @@ class Autocamera:
             print(self.keepSet)
 
         except Exception as e:
-            rospy.logerr(e.message)
+            self._node.get_logger().error(str(e))
             output_msg = joint['ecm']
     #         output_msg.name = ['outer_yaw', 'outer_pitch', 'insertion', 'outer_roll']
     #         output_msg.position = [joint['ecm'].position[x] for x in [0,1,5,6]]
@@ -116,7 +104,7 @@ class Autocamera:
         
     def logerror(self, msg, debug = False):
         if self.DEBUG or debug:
-            rospy.logerr(msg)
+            self._node.get_logger().error(str(msg))
             
     def dotproduct(self, v1, v2):
         return sum((a*b) for a, b in zip(v1, v2))
@@ -199,10 +187,10 @@ class Autocamera:
         return new_joint
                 
     def add_marker(self, pose, name, color=[1,0,1], type=Marker.SPHERE, scale = [.02,.02,.02], points=None, frame = "world"):
-        vis_pub = rospy.Publisher(name, Marker, queue_size=10)
+        vis_pub = self._node.create_publisher(Marker, name, 10)
         marker = Marker()
         marker.header.frame_id = frame
-        marker.header.stamp = rospy.Time() 
+        marker.header.stamp = self._node.get_clock().now().to_msg()
         marker.ns = "my_namespace"
         marker.id = 0
         marker.type = type
@@ -334,7 +322,7 @@ class Autocamera:
             p = self.ecm_kin.inverse(ecm_pose, q_guess=output_msg.position, min_joints=None, max_joints=None, maxiter=10000,eps=.001)
             
         except Exception as e:
-            rospy.logerr('error')
+            self._node.get_logger().error('error')
         if p is not None:  
             p[3] = 0
             output_msg.position = p
@@ -570,51 +558,6 @@ class Autocamera:
                 self.distance_to_midpoint = .20
         return msg   
     
-    def convert_point_to_camera_frame(self):
-        pass
-    
-    def set_ecm_to_world_transform(self, T_ecm):
-        self.__T_ecm__ = T_ecm
-        
-    def get_3d_deadzone(self, cam_info, frame_name):
-        """!
-            Returns a polygon object to be shown in RViz
-            
-            @param cam_info : The stereo camera parameters object
-            @param frame_name : The name of the frame that the polygon will be shown relative to
-            @param frame_convertor : A function that transforms any point from the camera frame to the desired frame
-            
-            @return p : A polygon object containing the coordinates of the deadzone
-        """
-        # A function to convert from the camera frame to the world frame
-        def frame_convertor(x,y,z):
-            my_point = np.array([x, y, z, 1]).reshape(4,1)
-            new_point = (self.__T_ecm__ * my_point)
-            x = float(new_point[0])
-            y = float(new_point[1])
-            z = float(new_point[2])
-            P = Point32( x = x, y = y, z = z)
-            
-            return P
-        
-        self.z = (self.z + .001) % .2
-        if self.distance_to_midpoint is None:
-            Z = self.z
-        else:
-            Z = self.distance_to_midpoint
-        self.deadzone_margin_3d = .15
-        
-        p = PolygonStamped()
-        for i in self.deadzone_3d:
-            x_lim = i['x']
-            y_lim = i['y']
-            p.polygon.points.append( frame_convertor( *self.project_to_3d(x_lim, y_lim, Z, cam_info)))
-            
-        p.header.stamp = rospy.Time.now()
-        p.header.frame_id = frame_name  
-        
-        return p
-    
     def project_to_3d(self, x_lim, y_lim, z, cam_info):
         """!
             Returns x,y,z values for a point on the field of view based on the depth
@@ -746,7 +689,7 @@ class Autocamera:
 
 
         except Exception as e:
-            rospy.logerr(e.message)
+            self._node.get_logger().error(str(e))
             output_msg = joint['ecm']
     #         output_msg.name = ['outer_yaw', 'outer_pitch', 'insertion', 'outer_roll']
     #         output_msg.position = [joint['ecm'].position[x] for x in [0,1,5,6]]

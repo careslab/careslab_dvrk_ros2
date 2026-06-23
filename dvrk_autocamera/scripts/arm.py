@@ -62,7 +62,7 @@ Arm API
 
 # sphinx-apidoc -F -A "Yijun Hu" -o doc src
 
-import rospy
+import rclpy
 import threading
 import math
 import sys
@@ -70,12 +70,13 @@ import logging
 import time
 import inspect
 import code
-import IPython
-import math
+from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, HistoryPolicy, QoSProfile, ReliabilityPolicy
 
-from PyKDL import *
-from tf import transformations
-from tf_conversions import posemath
+from PyKDL import Frame, Rotation, Vector, Twist, Wrench
+import tf2_geometry_msgs.tf2_geometry_msgs
+from tf2_ros import TransformBroadcaster, TransformListener, Buffer
+from scipy.spatial.transform import Rotation
 from std_msgs.msg import String, Bool, Float32, Empty
 from geometry_msgs.msg import Pose, PoseStamped, Vector3, Quaternion, Wrench
 from sensor_msgs.msg import JointState, Joy
@@ -131,72 +132,61 @@ class arm:
         self.__effort_joint_current = []
         self.__position_cartesian_current = Frame()
 
+        if not rclpy.ok():
+            rclpy.init(args=None)
+        self.__node = Node('arm_api_' + self.__arm_name.lower())
+
+        # Create QoS profile for latched topics
+        latch_qos = QoSProfile(
+            depth=1,
+            reliability=ReliabilityPolicy.RELIABLE,
+            history=HistoryPolicy.KEEP_LAST,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL
+        )
+
         # publishers
         frame = Frame()
         self.__full_ros_namespace = self.__ros_namespace + self.__arm_name
-        self.set_robot_state_publisher = rospy.Publisher(self.__full_ros_namespace
-                                                         + '/set_robot_state',
-                                                         String, latch=True, queue_size = 1)
-        self.set_position_joint_publisher = rospy.Publisher(self.__full_ros_namespace
-                                                            + '/set_position_joint',
-                                                            JointState, latch=True, queue_size = 1)
-        self.set_position_goal_joint_publisher = rospy.Publisher(self.__full_ros_namespace
-                                                                 + '/set_position_goal_joint',
-                                                                 JointState, latch=True, queue_size = 1)
-        self.set_position_cartesian_publisher = rospy.Publisher(self.__full_ros_namespace
-                                                                + '/set_position_cartesian',
-                                                                Pose, latch=True, queue_size = 1)
-        self.set_position_goal_cartesian_publisher = rospy.Publisher(self.__full_ros_namespace
-                                                                     + '/set_position_goal_cartesian',
-                                                                     Pose, latch=True, queue_size = 1)
-        self.set_wrench_body_publisher = rospy.Publisher(self.__full_ros_namespace
-                                                         + '/set_wrench_body',
-                                                         Wrench, latch=True, queue_size = 1)
-        self.set_wrench_body_orientation_absolute_publisher = rospy.Publisher(self.__full_ros_namespace
-                                                                              + '/set_wrench_body_orientation_absolute',
-                                                                              Bool, latch=True, queue_size = 1)
-        self.set_wrench_spatial_publisher = rospy.Publisher(self.__full_ros_namespace
-                                                            + '/set_wrench_spatial',
-                                                            Wrench, latch=True, queue_size = 1)
-        self.set_gravity_compensation_publisher = rospy.Publisher(self.__full_ros_namespace
-                                                                  + '/set_gravity_compensation',
-                                                                  Bool, latch=True, queue_size = 1)
+        self.set_robot_state_publisher = self.__node.create_publisher(String, self.__full_ros_namespace + '/set_robot_state', latch_qos)
+        self.set_position_joint_publisher = self.__node.create_publisher(JointState, self.__full_ros_namespace + '/set_position_joint', latch_qos)
+        self.set_position_goal_joint_publisher = self.__node.create_publisher(JointState, self.__full_ros_namespace + '/set_position_goal_joint', latch_qos)
+        self.set_position_cartesian_publisher = self.__node.create_publisher(Pose, self.__full_ros_namespace + '/set_position_cartesian', latch_qos)
+        self.set_position_goal_cartesian_publisher = self.__node.create_publisher(Pose, self.__full_ros_namespace + '/set_position_goal_cartesian', latch_qos)
+        self.set_wrench_body_publisher = self.__node.create_publisher(Wrench, self.__full_ros_namespace + '/set_wrench_body', latch_qos)
+        self.set_wrench_body_orientation_absolute_publisher = self.__node.create_publisher(Bool, self.__full_ros_namespace + '/set_wrench_body_orientation_absolute', latch_qos)
+        self.set_wrench_spatial_publisher = self.__node.create_publisher(Wrench, self.__full_ros_namespace + '/set_wrench_spatial', latch_qos)
+        self.set_gravity_compensation_publisher = self.__node.create_publisher(Bool, self.__full_ros_namespace + '/set_gravity_compensation', latch_qos)
 
         # subscribers
-        self.sub_robot_state = rospy.Subscriber(self.__full_ros_namespace + '/robot_state',
-                         String, self.__robot_state_callback)
-        self.sub_goal_reached = rospy.Subscriber(self.__full_ros_namespace + '/goal_reached',
-                         Bool, self.__goal_reached_callback)
-        self.sub_state_joint_desired = rospy.Subscriber(self.__full_ros_namespace + '/state_joint_desired',
-                         JointState, self.__state_joint_desired_callback)
-        self.sub_position_cartesian_desired = rospy.Subscriber(self.__full_ros_namespace + '/position_cartesian_desired',
-                         PoseStamped, self.__position_cartesian_desired_callback)
-        self.sub_state_joint_current = rospy.Subscriber(self.__full_ros_namespace + '/state_joint_current',
-                         JointState, self.__state_joint_current_callback)
-        self.sub_position_cartesian_current = rospy.Subscriber(self.__full_ros_namespace + '/position_cartesian_current',
-                         PoseStamped, self.__position_cartesian_current_callback)
+        self.sub_robot_state = self.__node.create_subscription(String, self.__full_ros_namespace + '/robot_state', self.__robot_state_callback, latch_qos)
+        self.sub_goal_reached = self.__node.create_subscription(Bool, self.__full_ros_namespace + '/goal_reached', self.__goal_reached_callback, latch_qos)
+        self.sub_state_joint_desired = self.__node.create_subscription(JointState, self.__full_ros_namespace + '/state_joint_desired', self.__state_joint_desired_callback, latch_qos)
+        self.sub_position_cartesian_desired = self.__node.create_subscription(PoseStamped, self.__full_ros_namespace + '/position_cartesian_desired', self.__position_cartesian_desired_callback, latch_qos)
+        self.sub_state_joint_current = self.__node.create_subscription(JointState, self.__full_ros_namespace + '/state_joint_current', self.__state_joint_current_callback, latch_qos)
+        self.sub_position_cartesian_current = self.__node.create_subscription(PoseStamped, self.__full_ros_namespace + '/position_cartesian_current', self.__position_cartesian_current_callback, latch_qos)
         # create node
         # rospy.init_node('arm_api', anonymous = True)
 #         rospy.init_node('arm_api',anonymous = True, log_level = rospy.WARN)
 #         rospy.loginfo(rospy.get_caller_id() + ' -> started arm: ' + self.__arm_name)
     
     def unregister(self):
-        self.sub_robot_state.unregister()
-        self.sub_goal_reached.unregister()
-        self.sub_state_joint_desired.unregister()
-        self.sub_position_cartesian_desired.unregister()
-        self.sub_state_joint_current.unregister()
-        self.sub_position_cartesian_current.unregister()
+        self.__node.destroy_subscription(self.sub_robot_state)
+        self.__node.destroy_subscription(self.sub_goal_reached)
+        self.__node.destroy_subscription(self.sub_state_joint_desired)
+        self.__node.destroy_subscription(self.sub_position_cartesian_desired)
+        self.__node.destroy_subscription(self.sub_state_joint_current)
+        self.__node.destroy_subscription(self.sub_position_cartesian_current)
         
-        self.set_gravity_compensation_publisher.unregister()
-        self.set_position_cartesian_publisher.unregister()
-        self.set_position_goal_cartesian_publisher.unregister()
-        self.set_position_goal_joint_publisher.unregister()
-        self.set_position_joint_publisher.unregister()
-        self.set_robot_state_publisher.unregister()
-        self.set_wrench_body_orientation_absolute_publisher.unregister()
-        self.set_wrench_body_publisher.unregister()
-        self.set_wrench_spatial_publisher.unregister()
+        self.__node.destroy_publisher(self.set_gravity_compensation_publisher)
+        self.__node.destroy_publisher(self.set_position_cartesian_publisher)
+        self.__node.destroy_publisher(self.set_position_goal_cartesian_publisher)
+        self.__node.destroy_publisher(self.set_position_goal_joint_publisher)
+        self.__node.destroy_publisher(self.set_position_joint_publisher)
+        self.__node.destroy_publisher(self.set_robot_state_publisher)
+        self.__node.destroy_publisher(self.set_wrench_body_orientation_absolute_publisher)
+        self.__node.destroy_publisher(self.set_wrench_body_publisher)
+        self.__node.destroy_publisher(self.set_wrench_spatial_publisher)
+        self.__node.destroy_node()
         
         
     def get_robot_state(self):
@@ -258,11 +248,11 @@ class arm:
         if (self.__robot_state == state):
             return True
         self.__robot_state_event.clear()
-        self.set_robot_state_publisher.publish(state)
+        self.set_robot_state_publisher.publish(String(data=state))
         self.__robot_state_event.wait(timeout)
         # if the state is not changed return False
         if (self.__robot_state != state):
-            rospy.logfatal(rospy.get_caller_id() + ' -> failed to reach state ' + state)
+            self.__node.get_logger().fatal('failed to reach state ' + state)
             return False
         return True
 
@@ -271,7 +261,7 @@ class arm:
         the arm. This method requries the arm name."""
 #         rospy.loginfo(rospy.get_caller_id() + ' -> start homing')
         self.__robot_state_event.clear()
-        self.set_robot_state_publisher.publish('Home')
+        self.set_robot_state_publisher.publish(String(data='Home'))
         counter = 10 # up to 10 transitions to get ready
         while (counter > 0):
             self.__robot_state_event.wait(20) # give up to 20 secs for each transition
@@ -282,7 +272,7 @@ class arm:
             else:
                 counter = -1
         if (self.__robot_state != 'DVRK_READY'):
-            rospy.logfatal(rospy.get_caller_id() + ' -> failed to reach state DVRK_READY')
+            self.__node.get_logger().fatal('failed to reach state DVRK_READY')
 #         rospy.loginfo(rospy.get_caller_id() + ' <- homing complete')
     
     
@@ -376,17 +366,17 @@ class arm:
                             i+1
                     # print statements for error inside list
                     if(found1 == False):
-                        print 'Error in ', inspect.stack()[1][3], 'list should be made up of', type_list[i+1],'and not of'
+                        print('Error in ', inspect.stack()[1][3], 'list should be made up of', type_list[i+1],'and not of')
                         print_type1 = ' '
                         for k in range(len(input)):
                             print_medium = ' ' + str(type(input[k]))
                             print_type1 += print_medium
-                        print print_type1
+                        print(print_type1)
                     else:
                         return True
         # not of type_list print state for this error inside
         if (found == False):
-            print 'Error in ', inspect.stack()[1][3], 'input is of type', input, 'and is not one of:'
+            print('Error in ', inspect.stack()[1][3], 'input is of type', input, 'and is not one of:')
             print_type2 = ''
             # skip_length
             i = 0
@@ -396,7 +386,7 @@ class arm:
                 if (type_list[i] == list):
                     i += 1
                 i += 1
-            print print_type2
+            print(print_type2)
         return False
 
     def __check_list_length(self, check_list, check_length):
@@ -409,7 +399,7 @@ class arm:
         if (len(check_list) == check_length):
             return True
         else:
-            print 'input is of size', len(check_list), 'but required size is', check_length
+            print('input is of size', len(check_list), 'but required size is', check_length)
             # sperspace = new_module('superspace')
             # sperspace.check_list = check_list
             # console = Console({'superspace': superspace})

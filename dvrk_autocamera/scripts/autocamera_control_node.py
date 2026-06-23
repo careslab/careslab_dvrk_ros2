@@ -12,11 +12,14 @@ method. It also provides the capability to record all the movements.
 from pickle import TRUE
 from __common_imports__ import *
 
+import rclpy
+import xacro
+from rclpy.node import Node
+from rclpy.qos import QoSProfile, DurabilityPolicy, HistoryPolicy
 import sys
 
 from autocamera_algorithm import Autocamera
 import os
-import tf
 
 import threading
 import configparser
@@ -36,8 +39,12 @@ class Autocamera_node_handler:
     DEBUG = True
     
     def __init__(self):
-
-        rospy.init_node('autocamera_control_node')
+        self.node = Node('autocamera_control_node')
+        self.qos_profile = QoSProfile(
+            depth=1,
+            durability=DurabilityPolicy.TRANSIENT_LOCAL,
+            history=HistoryPolicy.KEEP_LAST
+        )
         self.t = time.time()
         
         self.__AUTOCAMERA_MODE__ = self.MODE.simulation
@@ -61,16 +68,15 @@ class Autocamera_node_handler:
         self.headsensor_active = False
         self.repositioning_clutch_active = False
         
-        # For forward and inverse kinematics
-        self.__ecm_robot__ = URDF.from_parameter_server('/dvrk_ecm/robot_description')
-        self.__ecm_kin__ = KDLKinematics(self.__ecm_robot__, self.__ecm_robot__.links[0].name, self.__ecm_robot__.links[-1].name)
-        self.__psm1_robot__ = URDF.from_parameter_server('/dvrk_psm1/robot_description')
-        self.__psm1_kin__ = KDLKinematics(self.__psm1_robot__, self.__psm1_robot__.links[0].name, self.__psm1_robot__.links[-1].name)
-        self.__mtml_robot__ = URDF.from_parameter_server('/dvrk_mtml/robot_description')
-        self.__mtml_kin__ = KDLKinematics(self.__mtml_robot__, self.__mtml_robot__.links[0].name, self.__mtml_robot__.links[-1].name)
-        self.__mtmr_robot__ = URDF.from_parameter_server('/dvrk_mtmr/robot_description')
-        self.__mtmr_kin__ = KDLKinematics(self.__mtmr_robot__, self.__mtmr_robot__.links[0].name, self.__mtmr_robot__.links[-1].name)
+        # For forward and inverse kinematics        
+        self.psm1_kin = get_psm1_chain()        
+        self.psm2_kin = get_psm2_chain()        
+        self.ecm_kin = get_ecm_chain()
         
+        self.initialize_psms_initialized = 30
+        self.__DEBUG_GRAPHICS__ = False
+    
+        self.__init_nodes__()
         
         # For camera clutch control    
         self.camera_clutch_pressed = False        
@@ -89,9 +95,6 @@ class Autocamera_node_handler:
         
         self.set_autocamera_params(inner, outer)
         
-        self.initialize_psms_initialized = 30
-        self.__DEBUG_GRAPHICS__ = False
-        
         
     def __init_nodes__(self):
         #Create arm objects from arm.py
@@ -102,113 +105,107 @@ class Autocamera_node_handler:
         self.logerror("start", debug=True)
         
         # Publishers to the simulation
-        self.pub_ecm = rospy.Publisher('/dvrk_ecm/joint_states_robot', JointState, queue_size=1, tcp_nodelay=True)
-        self.__pub_psm1__ = rospy.Publisher('/dvrk_psm1/joint_states_robot', JointState, queue_size=1, tcp_nodelay=True)
-        self.__pub_psm2__ = rospy.Publisher('/dvrk_psm2/joint_states_robot', JointState, queue_size=1, tcp_nodelay=True)
+        self.pub_ecm = self.node.create_publisher(JointState, '/dvrk_ecm/joint_states_robot', self.qos_profile)
+        self.__pub_psm1__ = self.node.create_publisher(JointState, '/dvrk_psm1/joint_states_robot', self.qos_profile)
+        self.__pub_psm2__ = self.node.create_publisher(JointState, '/dvrk_psm2/joint_states_robot', self.qos_profile)
         
         # Get the joint angles from the simulation
-        self.sub_ecm_sim = rospy.Subscriber('/dvrk_ecm/joint_states', JointState, self.add_ecm_jnt, queue_size=1, tcp_nodelay=True)
-        self.sub_caminfo = rospy.Subscriber('/fakecam_node/camera_info', CameraInfo, self.get_cam_info, queue_size=1, tcp_nodelay=True)
+        self.sub_ecm_sim = self.node.create_subscription(JointState, '/dvrk_ecm/joint_states', self.add_ecm_jnt, self.qos_profile)
+        self.sub_caminfo = self.node.create_subscription(CameraInfo, '/fakecam_node/camera_info', self.get_cam_info, self.qos_profile)
         
-        try:
-            self.sub_psm1_sim.unregister()
-            self.sub_psm2_sim.unregister()
-            self.sub_psm1_hw.unregister()
-            self.sub_psm2_hw.unregister()
-        except Exception:
-            pass
         if self.__AUTOCAMERA_MODE__ == self.MODE.hardware :
             # Get the joint angles from the hardware and move the simulation from hardware
-            self.sub_psm1_hw = rospy.Subscriber('/dvrk/PSM1/state_joint_current', JointState, self.add_psm1_jnt, queue_size=1, tcp_nodelay=True)
-            self.sub_psm2_hw = rospy.Subscriber('/dvrk/PSM2/state_joint_current', JointState, self.add_psm2_jnt, queue_size=1, tcp_nodelay=True)
-            self.sub_ecm_sim = rospy.Subscriber('/dvrk/ECM/state_joint_current', JointState, self.ecm_cb_hw, queue_size=1, tcp_nodelay=True)
+            self.sub_psm1_hw = self.node.create_subscription(JointState, '/dvrk/PSM1/state_joint_current', self.add_psm1_jnt, self.qos_profile)
+            self.sub_psm2_hw = self.node.create_subscription(JointState, '/dvrk/PSM2/state_joint_current', self.add_psm2_jnt, self.qos_profile)
+            self.sub_ecm_sim = self.node.create_subscription(JointState, '/dvrk/ECM/state_joint_current', self.ecm_cb_hw, self.qos_profile)
             
             # subscribe to head sensor
-            self.sub_headsensor = rospy.Subscriber('/dvrk/footpedals/coag', Joy, self.__headsensor_cb__ , queue_size=1, tcp_nodelay=True)
-            self.sub_repositioning_clutch = rospy.Subscriber('/dvrk/footpedals/clutch', Joy, self.repositioning_clutch_cb , queue_size=1, tcp_nodelay=True)
+            self.sub_headsensor = self.node.create_subscription(Joy, '/dvrk/footpedals/coag', self.__headsensor_cb__ , self.qos_profile)
+            self.sub_repositioning_clutch = self.node.create_subscription(Joy, '/dvrk/footpedals/clutch', self.repositioning_clutch_cb , self.qos_profile)
             
         elif self.__AUTOCAMERA_MODE__ == self.MODE.simulation:
             # Get the joint angles from the simulation
-            self.sub_psm1_sim = rospy.Subscriber('/dvrk_psm1/joint_states', JointState, self.add_psm1_jnt, queue_size=1, tcp_nodelay=True)
-            self.sub_psm2_sim = rospy.Subscriber('/dvrk_psm2/joint_states', JointState, self.add_psm2_jnt, queue_size=1, tcp_nodelay=True)
+            self.sub_psm1_sim = self.node.create_subscription(JointState, '/dvrk_psm1/joint_states', self.add_psm1_jnt, self.qos_profile)
+            self.sub_psm2_sim = self.node.create_subscription(JointState, '/dvrk_psm2/joint_states', self.add_psm2_jnt, self.qos_profile)
             
             # If hardware is connected, subscribe to it and set the psm joint angles in the simulation from the hardware
-            #self.sub_psm1_hw = rospy.Subscriber('/dvrk/PSM1/state_joint_current', JointState, self.add_psm1_jnt_from_hw)
-            #self.sub_psm2_hw = rospy.Subscriber('/dvrk/PSM2/state_joint_current', JointState, self.add_psm2_jnt_from_hw)
+            # self.sub_psm1_hw = self.node.create_subscription(JointState, '/dvrk/PSM1/state_joint_current', self.add_psm1_jnt_from_hw, self.qos_profile)
+            # self.sub_psm2_hw = self.node.create_subscription(JointState, '/dvrk/PSM2/state_joint_current', self.add_psm2_jnt_from_hw, self.qos_profile)
             
             
         # Get the joint angles from MTM hardware
-        #rospy.Subscriber('/dvrk/MTML/position_joint_current', JointState, self.__mtml_cb__)
-        #rospy.Subscriber('/dvrk/MTMR/position_joint_current', JointState, add_psm1_jnt)
+        # self.node.create_subscription(JointState, '/dvrk/MTML/position_joint_current', self.__mtml_cb__, self.qos_profile)
+        # self.node.create_subscription(JointState, '/dvrk/MTMR/position_joint_current', add_psm1_jnt, self.qos_profile)
         
         # Detect whether or not the camera clutch is being pressed
-        #rospy.Subscriber('/dvrk/footpedals/camera', Bool, self.camera_clutch_cb)
+        # self.node.create_subscription(Bool, '/dvrk/footpedals/camera', self.camera_clutch_cb, self.qos_profile)
         
         # Move the hardware from the simulation
-        #rospy.Subscriber('/dvrk_psm1/joint_states', JointState, self.move_psm1)
-        #rospy.Subscriber('/dvrk_psm2/joint_states', JointState, self.move_psm2)
+        # self.node.create_subscription(JointState, '/dvrk_psm1/joint_states', self.move_psm1, self.qos_profile)
+        # self.node.create_subscription(JointState, '/dvrk_psm2/joint_states', self.move_psm2, self.qos_profile)
         
         if self.__DEBUG_GRAPHICS__ == True:
             # Subscribe to fakecam images
-            self.sub_fake_image_left = rospy.Subscriber('/fakecam_node/fake_image_left', Image, self.left_image_cb, queue_size=1)
-            self.sub_fake_image_right = rospy.Subscriber('/fakecam_node/fake_image_right', Image, self.right_image_cb, queue_size=1)
+            self.sub_fake_image_left = self.node.create_subscription(Image, '/fakecam_node/fake_image_left', self.left_image_cb, self.qos_profile)
+            self.sub_fake_image_right = self.node.create_subscription(Image, '/fakecam_node/fake_image_right', self.right_image_cb, self.qos_profile)
          
         # Publish images
-        self.pub_image_left = rospy.Publisher('autocamera_image_left', Image, queue_size=1)
-        self.pub_image_right = rospy.Publisher('autocamera_image_right', Image, queue_size=1)
+        self.pub_image_left = self.node.create_publisher(Image, 'autocamera_image_left', self.qos_profile)
+        self.pub_image_right = self.node.create_publisher(Image, 'autocamera_image_right', self.qos_profile)
 
         #dvrk Assistant callbacks
-        self.sub_run = rospy.Subscriber('/autocamera/run', Bool, self.runCallback, queue_size=1)
-        self.sub_track = rospy.Subscriber('/autocamera/track', String, self.trackCallback, queue_size=1)
-        self.sub_keep = rospy.Subscriber('/autocamera/keep', String, self.keepCallback, queue_size=1)
-        self.sub_find_tools = rospy.Subscriber('/autocamera/find_tools', Empty, self.findToolsCallback, queue_size=1)
-        self.sub_inner_zoom = rospy.Subscriber('/autocamera/inner_zoom_value', Float32, self.setInnerZoomCallback, queue_size=1)
-        self.sub_outer_zoom = rospy.Subscriber('/autocamera/outer_zoom_value', Float32, self.setOuterZoomCallback, queue_size=1)
+        self.sub_run = self.node.create_subscription(Bool, '/autocamera/run', self.runCallback, self.qos_profile)
+        self.sub_track = self.node.create_subscription(String, '/autocamera/track', self.trackCallback, self.qos_profile)
+        self.sub_keep = self.node.create_subscription(String, '/autocamera/keep', self.keepCallback, self.qos_profile)
+        self.sub_find_tools = self.node.create_subscription(Empty, '/autocamera/find_tools', self.findToolsCallback, self.qos_profile)
+        self.sub_inner_zoom = self.node.create_subscription(Float32, '/autocamera/inner_zoom_value', self.setInnerZoomCallback, self.qos_profile)
+        self.sub_outer_zoom = self.node.create_subscription(Float32, '/autocamera/outer_zoom_value', self.setOuterZoomCallback, self.qos_profile)
 
 
     def shutdown(self):
         try:
-            if self.__DEBUG_GRAPHICS__ == True:
-                self.sub_fake_image_left.unregister()
-                self.sub_fake_image_right.unregister()
-            if self.__AUTOCAMERA_MODE__ == self.MODE.simulation:
-                self.sub_psm1_sim.unregister()
-                self.sub_psm2_sim.unregister()
-            if self.__AUTOCAMERA_MODE__ == self.MODE.hardware:
-                self.sub_headsensor.unregister()
-                self.sub_repositioning_clutch.unregister()
-            
-            self.sub_ecm_sim.unregister()
-            self.sub_psm1_hw.unregister()
-            self.sub_psm2_hw.unregister()
-            self.sub_caminfo.unregister()
-            
-            self.pub_image_left.unregister()
-            self.pub_image_right.unregister()
-            self.pub_ecm.unregister()
-            self.__pub_psm1__.unregister()
-            self.__pub_psm2__.unregister()
-            
-            self.hw_ecm.unregister()
-            self.__hw_psm1__.unregister()
-            self.__hw_psm2__.unregister()
+            for attr_name in [
+                'sub_fake_image_left',
+                'sub_fake_image_right',
+                'sub_psm1_sim',
+                'sub_psm2_sim',
+                'sub_headsensor',
+                'sub_repositioning_clutch',
+                'sub_ecm_sim',
+                'sub_psm1_hw',
+                'sub_psm2_hw',
+                'sub_caminfo',
+                'sub_run',
+                'sub_track',
+                'sub_keep',
+                'sub_find_tools',
+                'sub_inner_zoom',
+                'sub_outer_zoom',
+            ]:
+                subscription = getattr(self, attr_name, None)
+                if subscription is not None:
+                    self.node.destroy_subscription(subscription)
 
-            self.sub_run.unregister()
-            self.sub_track.unregister()
-            self.sub_keep.unregister()
-            self.sub_find_tools.unregister()
-            self.sub_inner_zoom.unregister()
-            self.sub_outer_zoom.unregister()
+            for attr_name in [
+                'pub_image_left',
+                'pub_image_right',
+                'pub_ecm',
+                '__pub_psm1__',
+                '__pub_psm2__',
+            ]:
+                publisher = getattr(self, attr_name, None)
+                if publisher is not None:
+                    self.node.destroy_publisher(publisher)
+
             print( "Shutting down " + self.__class__.__name__)
             
         except Exception:
             print("couldn't unregister all the topics")
-#         rospy.signal_shutdown('shutting down Autocamera')
         
     # This needs to be run before anything can be expected
     def spin(self):
         self.__init_nodes__() # initialize all the nodes, subscribers and publishers
-        rospy.spin()
+        rclpy.spin(self.node)
      
     def set_autocamera_params(self, inner_zone, dead_zone):
         self.autocamera.zoom_deadzone_radius = dead_zone
@@ -274,7 +271,7 @@ class Autocamera_node_handler:
             
     def logerror(self, msg, debug = False):
         if self.DEBUG or debug:
-            rospy.logerr(msg)
+            self.node.get_logger().error(msg)
             
     def ecm_manual_control_lock(self, msg, fun):
         """!
@@ -493,7 +490,7 @@ class Autocamera_node_handler:
                         self.first_run = False
                 
             except TypeError:
-                #rospy.logerr('Exception : ' + TypeError.message.__str__())
+                # self.node.get_logger().error('Exception : ' + TypeError.message.__str__())
                 pass
 
             self.joint_angles = dict.fromkeys(self.joint_angles, None)    
@@ -568,18 +565,26 @@ def main():
     #self.__mode__ = mode
 
     #def run(self):
+    rclpy.init()
     node_handler = Autocamera_node_handler()
     __mode__ = node_handler.MODE.hardware
     print('\nRunning {} in {}\n'.format("Autocamera",__mode__))
     node_handler.set_mode(__mode__)
     node_handler.debug_graphics(True)
-    node_handler.spin()
+    try:
+        node_handler.spin()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        node_handler.shutdown()
+        if rclpy.ok():
+            rclpy.shutdown()
 
     
 
 if __name__ == "__main__":
-    rospy.loginfo("Running Autocamera")
+    print("Running Autocamera")
     try:
         main()
-    except rospy.ROSInterruptException:
+    except KeyboardInterrupt:
         pass

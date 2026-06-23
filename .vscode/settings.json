@@ -1,0 +1,6 @@
+{
+  "C_Cpp.default.compileCommands": "${workspaceFolder}/build/dvrk_assistant_bridge/compile_commands.json",
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/dvrk_cares_rqt_plugin/src"
+  ]
+}

@@ -3,7 +3,7 @@ build/
 log/
 **/build/
 **/log/
-
+install/
 # Python bytecode and cache artifacts
 __pycache__/
 *.py[cod]

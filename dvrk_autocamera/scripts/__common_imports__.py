@@ -1,47 +1,49 @@
 import os
-import tf
 import cv2
 import math
 import time
-import rospy
-import rosbag
+import rclpy
+import rosbag2_py
 import cv_bridge
 import numpy as np
 import image_geometry
+from rclpy.node import Node
 
 from arm import arm as robot
-from urdf_parser_py.urdf import URDF
-from pykdl_utils.kdl_kinematics import KDLKinematics
-from std_msgs.msg import Bool
-from std_msgs.msg import String
-from sensor_msgs.msg import JointState
-from sensor_msgs.msg import CameraInfo
-from sensor_msgs.msg import Image
-from sensor_msgs.msg._CompressedImage import CompressedImage
-from sensor_msgs.msg import Joy
-from std_msgs.msg._Empty import Empty
-from std_msgs.msg._Float32 import Float32
-from geometry_msgs.msg import PoseStamped, Pose
-from geometry_msgs.msg._Wrench import Wrench
-from geometry_msgs.msg import Quaternion
-from geometry_msgs.msg import PolygonStamped
-from geometry_msgs.msg import Point32
-from geometry_msgs.msg import Point
+from kdl_parser_py import urdf
+import PyKDL
+from std_msgs.msg import Bool, String, Empty, Float32
+from sensor_msgs.msg import JointState, CameraInfo, Image, CompressedImage, Joy
+from geometry_msgs.msg import PoseStamped, Pose, Wrench, Quaternion, PolygonStamped, Point32, Point
 from visualization_msgs.msg import Marker
-from visualization_msgs.msg import Marker
-from visualization_msgs.msg._Marker import Marker
 from types import NoneType
-from hrl_geom import pose_converter
-from hrl_geom.pose_converter import PoseConv
+# from hrl_geom import pose_converter
+# from hrl_geom.pose_converter import PoseConv
 from math import acos, atan2, cos, pi, sin
 from numpy import array, cross, dot, float64, hypot, zeros, rot90
 from numpy.linalg import norm
+from ament_index_python.packages import get_package_share_directory
+
+import xacro
+
+
+_marker_node = None
+model_dir = os.path.join(get_package_share_directory('dvrk_model'), 'urdf')
+
+def _get_marker_node():
+    global _marker_node
+    if _marker_node is None:
+        if not rclpy.ok():
+            rclpy.init(args=None)
+        _marker_node = Node('autocamera_common_imports')
+    return _marker_node
 
 def add_marker(pose, name, color=[1,0,1], type=Marker.SPHERE, scale = [.02,.02,.02], points=None, frame = "world"):
-        vis_pub = rospy.Publisher(name, Marker, queue_size=10)
+        marker_node = _get_marker_node()
+        vis_pub = marker_node.create_publisher(Marker, name, 10)
         marker = Marker()
         marker.header.frame_id = frame
-        marker.header.stamp = rospy.Time() 
+        marker.header.stamp = marker_node.get_clock().now().to_msg()
         marker.ns = "my_namespace"
         marker.id = 0
         marker.type = type
@@ -130,3 +132,31 @@ def find_rotation_matrix_between_two_vectors(a,b):
     
 def distance(a, b):
     return math.sqrt( sum([ (i-j)**2 for i,j in zip(a,b)]) )
+
+def get_psm1_chain():
+    psm1_urdf_path = os.path.join(model_dir, 'Classic', 'PSM1.urdf.xacro')
+    print(f"Loading PSM1 from: {psm1_urdf_path}")
+    xml_string = xacro.process_file(psm1_urdf_path, mappings={'arm': 'psm1'}).toxml()
+    ok, psm1_tree = urdf.treeFromString(xml_string)
+    psm1_kin = psm1_tree.getChain("world", "psm1_tool_tip_link")     
+    
+    return psm1_kin         
+
+def get_psm2_chain():
+    psm2_urdf_path = os.path.join(model_dir, 'Classic', 'PSM2.urdf.xacro')
+    print(f"Loading PSM2 from: {psm2_urdf_path}")
+    xml_string = xacro.process_file(psm2_urdf_path, mappings={'arm': 'psm2'}).toxml()
+    ok, psm2_tree = urdf.treeFromString(xml_string)
+    psm2_kin = psm2_tree.getChain("world", "psm2_tool_tip_link")   
+    
+    return psm2_kin  
+
+def get_ecm_chain():
+    ecm_urdf_path = os.path.join(model_dir, 'Classic', 'ecm.urdf.xacro')
+    print(f"Loading ECM from: {ecm_urdf_path}")
+    xml_string = xacro.process_file(ecm_urdf_path, mappings={'arm': 'ecm'}).toxml()
+    ok, ecm_tree = urdf.treeFromString(xml_string)
+    ecm_kin = ecm_tree.getChain("world", "ecm_end_link") 
+    
+    return ecm_kin
+        
