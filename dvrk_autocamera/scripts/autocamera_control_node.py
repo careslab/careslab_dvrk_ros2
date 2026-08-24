@@ -28,26 +28,33 @@ import pexpect
 import time
 from time import strptime
 
+class MODE:
+    simulation = "SIMULATION"
+    hardware = "HARDWARE"
+    sliders = "SLIDERS"
+
 class Autocamera_node_handler:
     # move the actual ecm with sliders?
     __MOVE_ECM_WITH_SLIDERS__ = False
-    class MODE:
-        simulation = "SIMULATION"
-        hardware = "HARDWARE"
-        sliders = "SLIDERS"    
     
     DEBUG = True
     
-    def __init__(self):
+    def __init__(self, mode=MODE.simulation):
+        print("Starting autocamera control node")
         self.node = Node('autocamera_control_node')
         self.qos_profile = QoSProfile(
             depth=1,
             durability=DurabilityPolicy.TRANSIENT_LOCAL,
             history=HistoryPolicy.KEEP_LAST
         )
+        self.hardware_qos_profile = QoSProfile(
+            depth=1,
+            durability=DurabilityPolicy.VOLATILE,
+            history=HistoryPolicy.KEEP_LAST
+        )
         self.t = time.time()
         
-        self.__AUTOCAMERA_MODE__ = self.MODE.simulation
+        self.__AUTOCAMERA_MODE__ = mode
         
         self.autocamera = Autocamera() # Instantiate the Autocamera Class
         
@@ -113,17 +120,17 @@ class Autocamera_node_handler:
         self.sub_ecm_sim = self.node.create_subscription(JointState, '/dvrk_ecm/joint_states', self.add_ecm_jnt, self.qos_profile)
         self.sub_caminfo = self.node.create_subscription(CameraInfo, '/fakecam_node/camera_info', self.get_cam_info, self.qos_profile)
         
-        if self.__AUTOCAMERA_MODE__ == self.MODE.hardware :
+        if self.__AUTOCAMERA_MODE__ == MODE.hardware :
             # Get the joint angles from the hardware and move the simulation from hardware
-            self.sub_psm1_hw = self.node.create_subscription(JointState, '/dvrk/PSM1/state_joint_current', self.add_psm1_jnt, self.qos_profile)
-            self.sub_psm2_hw = self.node.create_subscription(JointState, '/dvrk/PSM2/state_joint_current', self.add_psm2_jnt, self.qos_profile)
-            self.sub_ecm_sim = self.node.create_subscription(JointState, '/dvrk/ECM/state_joint_current', self.ecm_cb_hw, self.qos_profile)
+            self.sub_psm1_hw = self.node.create_subscription(JointState, '/PSM1/measured_js', self.add_psm1_jnt, self.hardware_qos_profile)
+            self.sub_psm2_hw = self.node.create_subscription(JointState, '/PSM2/measured_js', self.add_psm2_jnt, self.hardware_qos_profile)
+            self.sub_ecm_sim = self.node.create_subscription(JointState, '/ECM/measured_js', self.add_ecm_jnt, self.hardware_qos_profile)
             
             # subscribe to head sensor
-            self.sub_headsensor = self.node.create_subscription(Joy, '/dvrk/footpedals/coag', self.__headsensor_cb__ , self.qos_profile)
-            self.sub_repositioning_clutch = self.node.create_subscription(Joy, '/dvrk/footpedals/clutch', self.repositioning_clutch_cb , self.qos_profile)
+            self.sub_headsensor = self.node.create_subscription(Joy, '/dvrk/footpedals/coag', self.__headsensor_cb__ , self.hardware_qos_profile)
+            self.sub_repositioning_clutch = self.node.create_subscription(Joy, '/dvrk/footpedals/clutch', self.repositioning_clutch_cb , self.hardware_qos_profile)
             
-        elif self.__AUTOCAMERA_MODE__ == self.MODE.simulation:
+        elif self.__AUTOCAMERA_MODE__ == MODE.simulation:
             # Get the joint angles from the simulation
             self.sub_psm1_sim = self.node.create_subscription(JointState, '/dvrk_psm1/joint_states', self.add_psm1_jnt, self.qos_profile)
             self.sub_psm2_sim = self.node.create_subscription(JointState, '/dvrk_psm2/joint_states', self.add_psm2_jnt, self.qos_profile)
@@ -385,9 +392,9 @@ class Autocamera_node_handler:
 
     #Simulation mode callback for the ECM since PSM1 and PSM2 joint states are not subscribed too
     def add_ecm_jnt(self, msg):
-        if self.run == True and self.camera_clutch_pressed == False and msg is not None:
+        if self.camera_clutch_pressed == False and msg is not None:
             if self.__MOVE_ECM_WITH_SLIDERS__ == False:
-                #if self.__AUTOCAMERA_MODE__ == self.MODE.hardware:
+                #if self.__AUTOCAMERA_MODE__ == MODE.hardware:
                 #    msg.name = ['outer_yaw', 'outer_pitch', 'insertion', 'outer_roll']
                 self.add_jnt('ecm', msg)
             else:
@@ -403,14 +410,14 @@ class Autocamera_node_handler:
     #This is not called
     def add_psm1_jnt_from_hw(self, msg):
         if self.camera_clutch_pressed == False and msg is not None:
-            if self.__AUTOCAMERA_MODE__ == self.MODE.simulation:
+            if self.__AUTOCAMERA_MODE__ == MODE.simulation:
                 msg.name = ['outer_yaw', 'outer_pitch', 'outer_insertion', 'outer_roll', 'outer_wrist_pitch', 'outer_wrist_yaw', 'jaw']
                 self.__pub_psm1__.publish(msg)
 
     #This is not called
     def add_psm2_jnt_from_hw(self, msg):
         if self.camera_clutch_pressed == False and msg is not None:
-            if self.__AUTOCAMERA_MODE__ == self.MODE.simulation:
+            if self.__AUTOCAMERA_MODE__ == MODE.simulation:
                 msg.name = ['outer_yaw', 'outer_pitch', 'outer_insertion', 'outer_roll', 'outer_wrist_pitch', 'outer_wrist_yaw', 'jaw']
                 self.__pub_psm2__.publish(msg)
                 
@@ -418,7 +425,7 @@ class Autocamera_node_handler:
     def add_psm1_jnt(self, msg):
         if self.camera_clutch_pressed == False and msg is not None:
             # We need to set the names, otherwise the simulation won't move
-            if self.__AUTOCAMERA_MODE__ == self.MODE.hardware:
+            if self.__AUTOCAMERA_MODE__ == MODE.hardware:
                 msg.name = ['outer_yaw', 'outer_pitch', 'outer_insertion', 'outer_roll', 'outer_wrist_pitch', 'outer_wrist_yaw', 'jaw']
                 self.__pub_psm1__.publish(msg)
             self.add_jnt('psm1', msg)
@@ -427,7 +434,7 @@ class Autocamera_node_handler:
     # psm2 callback    
     def add_psm2_jnt(self, msg):
         if self.camera_clutch_pressed == False and msg is not None:
-            if self.__AUTOCAMERA_MODE__ == self.MODE.hardware :
+            if self.__AUTOCAMERA_MODE__ == MODE.hardware :
                 msg.name = ['outer_yaw', 'outer_pitch', 'outer_insertion', 'outer_roll', 'outer_wrist_pitch', 'outer_wrist_yaw', 'jaw']
                 self.__pub_psm2__.publish(msg)
             self.add_jnt('psm2', msg)
@@ -439,11 +446,11 @@ class Autocamera_node_handler:
         self.joint_angles[name] = msg
 
         #Dont return if in simulation since there is no need for head sensor and clutch
-        if self.__AUTOCAMERA_MODE__ != self.MODE.simulation:
+        if self.__AUTOCAMERA_MODE__ != MODE.simulation:
             if self.headsensor_active == False or self.repositioning_clutch_active == True:
                 return
         if not None in self.joint_angles.values():
-            if self.initialize_psms_initialized>0 and self.__AUTOCAMERA_MODE__ == self.MODE.simulation:
+            if self.initialize_psms_initialized>0 and self.__AUTOCAMERA_MODE__ == MODE.simulation:
                 self.initialize_psms()
                 time.sleep(.01)
                 self.initialize_psms_initialized -= 1
@@ -458,7 +465,7 @@ class Autocamera_node_handler:
                 if len(jnt_msg.position) != 4 or len(jnt_msg.name) != 4 :
                     return
                 #return # stop here until we co-register the arms
-                if self.__AUTOCAMERA_MODE__ == self.MODE.hardware:
+                if self.__AUTOCAMERA_MODE__ == MODE.hardware:
                     pos = list(jnt_msg.position)
                     result = False
                     if self.first_run:
@@ -511,7 +518,7 @@ class Autocamera_node_handler:
     
     
     def initialize_psms(self):
-        if self.__AUTOCAMERA_MODE__ == self.MODE.simulation : 
+        if self.__AUTOCAMERA_MODE__ == MODE.simulation : 
             msg = JointState()
             msg.name = ['outer_yaw', 'outer_pitch', 'outer_insertion', 'outer_roll', 'outer_wrist_pitch', 'outer_wrist_yaw', 'jaw']
             msg.position = [0.84 , -0.65, 0.10, 0.00, 0.00, 0.00, 0.00]
@@ -566,10 +573,10 @@ def main():
 
     #def run(self):
     rclpy.init()
-    node_handler = Autocamera_node_handler()
-    __mode__ = node_handler.MODE.hardware
-    print('\nRunning {} in {}\n'.format("Autocamera",__mode__))
-    node_handler.set_mode(__mode__)
+    node_handler = Autocamera_node_handler(mode=MODE.hardware)
+    #__mode__ = node_handler.MODE.hardware
+    #print('\nRunning {} in {}\n'.format("Autocamera",__mode__))
+    #node_handler.set_mode(__mode__)
     node_handler.debug_graphics(True)
     try:
         node_handler.spin()

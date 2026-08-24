@@ -137,26 +137,35 @@ def get_psm1_chain():
     psm1_urdf_path = os.path.join(model_dir, 'Classic', 'PSM1.urdf.xacro')
     print(f"Loading PSM1 from: {psm1_urdf_path}")
     xml_string = xacro.process_file(psm1_urdf_path, mappings={'arm': 'psm1'}).toxml()
-    ok, psm1_tree = urdf.treeFromString(xml_string)
-    psm1_kin = psm1_tree.getChain("world", "psm1_tool_tip_link")     
     
+    with open(os.path.join(os.path.dirname(__file__), '../../psm1_xml.xml'), 'w') as f:
+        f.write(xml_string)
+        
+    ok, psm1_tree = urdf.treeFromString(xml_string)
+    psm1_kin = psm1_tree.getChain("world", "psm1_tool_tip_link")
     return psm1_kin         
 
 def get_psm2_chain():
     psm2_urdf_path = os.path.join(model_dir, 'Classic', 'PSM2.urdf.xacro')
     print(f"Loading PSM2 from: {psm2_urdf_path}")
     xml_string = xacro.process_file(psm2_urdf_path, mappings={'arm': 'psm2'}).toxml()
-    ok, psm2_tree = urdf.treeFromString(xml_string)
-    psm2_kin = psm2_tree.getChain("world", "psm2_tool_tip_link")   
     
+    with open(os.path.join(os.path.dirname(__file__), '../../psm2_xml.xml'), 'w') as f:
+        f.write(xml_string)
+        
+    ok, psm2_tree = urdf.treeFromString(xml_string)
+    psm2_kin = psm2_tree.getChain("world", "PSM2_tool_wrist_caudier_ee_link")
     return psm2_kin  
 
 def get_ecm_chain():
     ecm_urdf_path = os.path.join(model_dir, 'Classic', 'ecm.urdf.xacro')
     print(f"Loading ECM from: {ecm_urdf_path}")
     xml_string = xacro.process_file(ecm_urdf_path, mappings={'arm': 'ecm'}).toxml()
-    ok, ecm_tree = urdf.treeFromString(xml_string)
-    ecm_kin = ecm_tree.getChain("world", "ecm_end_link") 
     
+    with open(os.path.join(os.path.dirname(__file__), '../../ecm_xml.xml'), 'w') as f:
+        f.write(xml_string)
+        
+    ok, ecm_tree = urdf.treeFromString(xml_string)
+    ecm_kin = ecm_tree.getChain("world", "ecm_end_link")
     return ecm_kin
         

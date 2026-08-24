@@ -4,6 +4,7 @@
 '''
 
 from __future__ import division
+from turtle import forward
 from __common_imports__ import *
 
 import sys
@@ -16,7 +17,9 @@ import geometry_msgs
 import cv2
 import tf2_ros
 import numpy as np
+from scipy.spatial.transform import Rotation as ScipyRotation
 from rclpy.node import Node
+from urdf_kdl_utils import forward_kinematics, pos_rot_to_homo_mat, to_homo_mat, to_pos_euler
 
 
 class Autocamera:
@@ -30,6 +33,7 @@ class Autocamera:
         """!
             Class initialization function
         """
+        print("Starting autocamera algorithm node")
         if not rclpy.ok():
             rclpy.init(args=None)
         self._node = Node('autocamera_algorithm')
@@ -173,16 +177,11 @@ class Autocamera:
         elif arm_name =="psm2" : joint_kin = self.psm2_kin
                 
         pos = []
-        name = []
-        effort = []
-        velocity = []
-    
+
         new_joint = JointState()
         for i in range(len(joint.position)):
-            if joint.name[i] in joint_kin.get_joint_names():
-                pos.append(joint.position[i])
-                name.append(joint.name[i])
-        new_joint.name = name
+            pos.append(joint.position[i])
+
         new_joint.position = pos
         return new_joint
                 
@@ -208,8 +207,12 @@ class Autocamera:
             rot = pose[0:3,0:3] * r
             pose2 = np.matrix(np.identity(4))
             pose2[0:3,0:3] = rot
-            pose2[0:3,3] = pose[0:3,3]
-            quat_pose = PoseConv.to_pos_quat(pose2)
+            pose2[0:3,3] = np.asarray(pose[0:3,3]).reshape(-1, 1)
+            # Convert homogeneous matrix to position + quaternion using scipy
+            rotation_matrix = np.array(pose2[0:3, 0:3])
+            position = np.array(pose2[0:3, 3]).flatten()
+            quat = ScipyRotation.from_matrix(rotation_matrix).as_quat()
+            quat_pose = (position, quat)
             
             marker.pose.position.x = quat_pose[0][0]
             marker.pose.position.y = quat_pose[0][1]
@@ -219,13 +222,13 @@ class Autocamera:
             marker.pose.orientation.z = quat_pose[1][2]
             marker.pose.orientation.w = quat_pose[1][3] 
             
-        marker.scale.x = scale[0]
-        marker.scale.y = scale[1]
-        marker.scale.z = scale[2]
-        marker.color.a = .5
-        marker.color.r = color[0]
-        marker.color.g = color[1]
-        marker.color.b = color[2]
+        marker.scale.x = float(scale[0])
+        marker.scale.y = float(scale[1])
+        marker.scale.z = float(scale[2])
+        marker.color.a = 0.5
+        marker.color.r = float(color[0])
+        marker.color.g = float(color[1])
+        marker.color.b = float(color[2])
         
         
         
@@ -263,11 +266,11 @@ class Autocamera:
 #             mid_point = self.last_midpoint
 #         self.logerror("Distance is " + np.linalg.norm(mid_point-self.last_midpoint).__str__(), debug=True)
 #         mid_point = ecm_pose[0:3,3] - np.array([0,0,.01]).reshape(3,1)
-        self.add_marker(PoseConv.to_homo_mat([mid_point, [0,0,0]]), '/marker_subscriber',color=[1,0,0], scale=[0.047/5,0.047/5,0.047/5])
-        self.add_marker(PoseConv.to_homo_mat([key_hole,[0,0,0]]), '/keyhole_subscriber',[0,0,1])
+        self.add_marker(to_homo_mat([mid_point, [0,0,0]]), '/marker_subscriber',color=[1,0,0], scale=[0.047/5,0.047/5,0.047/5])
+        self.add_marker(to_homo_mat([key_hole,[0,0,0]]), '/keyhole_subscriber',[0,0,1])
         self.add_marker(ecm_pose, '/current_ecm_pose', [1,0,0], Marker.ARROW, scale=[.1,.005,.005])
         temp = clean_joints['ecm'].position
-        b,_ = self.ecm_kin.FK([temp[0],temp[1],.14,temp[3]])
+        b,_ = forward_kinematics(self.ecm_kin, [temp[0],temp[1],.14,temp[3]])
         
         # find the equation of the line that goes through the key_hole and the 
         # mid_point
@@ -275,7 +278,7 @@ class Autocamera:
         ecm_current_direction = b-key_hole 
         self.add_marker(ecm_pose, '/midpoint_to_keyhole', [0,1,1], type=Marker.LINE_LIST, scale = [0.005, 0.005, 0.005], points=[b, key_hole])
         
-        self.add_marker(PoseConv.to_homo_mat([ab_vector,[0,0,0]]), '/ab_vector',[0,1,0], type=Marker.ARROW)
+        self.add_marker(to_homo_mat([ab_vector,[0,0,0]]), '/ab_vector',[0,1,0], type=Marker.ARROW)
         r = self.find_rotation_matrix_between_two_vectors(ecm_current_direction, ab_vector)
         
         # Distance from keyhole to midpoint
@@ -311,13 +314,14 @@ class Autocamera:
         
         t = l/m
         
-        new_ecm_position = np.array([x(t), y(t), z(t)]).reshape(3,1)
+        new_ecm_position = np.array([x(t), y(t), z(t)])
 
         ecm_pose[0:3,0:3] =  r* ecm_pose[0:3,0:3]     #Row 0-3 and column 0-3 for a 3x3 rotation matrix
         ecm_pose[0:3,3] = new_ecm_position            #Entire fourth column (position vector)
         self.add_marker(ecm_pose, '/target_ecm_pose', [0,0,1], Marker.ARROW, scale=[.1,.005,.005])
         output_msg = clean_joints['ecm']
         
+        p = None  # Initialize p to None before try block
         try:
             p = self.ecm_kin.inverse(ecm_pose, q_guess=output_msg.position, min_joints=None, max_joints=None, maxiter=10000,eps=.001)
             
@@ -573,17 +577,23 @@ class Autocamera:
         y_lim *= (1-self.deadzone_margin_3d)
         
         cam = cam_info['left']
-        fx = cam.K[0]
-        fy = cam.K[4]
-        cx = cam.K[2]
-        cy = cam.K[5]
+        fx = float(cam.k[0])
+        fy = float(cam.k[4])
+        cx = float(cam.k[2])
+        cy = float(cam.k[5])
+        
+        # Validate camera parameters to avoid division by zero
+        if fx == 0 or fy == 0 or np.isnan(fx) or np.isnan(fy):
+            self._node.get_logger().warn("Invalid camera intrinsics: fx or fy is zero or NaN")
+            return x_lim, y_lim, z
+        
         fov_x = 2 * np.arctan(cy/fy)
         fov_y = 2 * np.arctan(cx/fx)
         
         x = cx * z * x_lim / fx
         y = cy * z * y_lim / fy
         
-        return x,y,z
+        return float(x), float(y), float(z)
     
     def find_tool_relation_to_3d_deadzone(self, cam_info, tool_position):
         """!
@@ -660,16 +670,18 @@ class Autocamera:
     def compute_viewangle(self, joint, cam_info, pos_track):
         kinematics = lambda name: self.psm1_kin if name == 'psm1' else self.psm2_kin if name == 'psm2' else self.ecm_kin 
         clean_joints = {}
+        # TODO fix error when running control node
         try:
             joint_names = joint.keys()
             for j in joint_names:
                 clean_joints[j] = self.extract_positions(joint[j], j, kinematics(j))
         
-            key_hole, _ = self.ecm_kin.FK([0,0,0,0]) # The position of the keyhole, is the end-effector's
-            psm1_pos,_ = self.psm1_kin.FK(clean_joints['psm1'].position)
-            psm2_pos,_ = self.psm2_kin.FK(clean_joints['psm2'].position)
-            psm1_pose = self.psm1_kin.forward(clean_joints['psm1'].position)
-            ecm_pose = self.ecm_kin.forward(clean_joints['ecm'].position)
+            key_hole, _ = forward_kinematics(self.ecm_kin, [0, 0, 0, 0]) # The position of the keyhole, is the end-effector's
+            psm1_pos,_ =   forward_kinematics(self.psm1_kin, clean_joints['psm1'].position)
+            psm2_pos,_ = forward_kinematics(self.psm2_kin, clean_joints['psm2'].position)
+            # psm1_pose = self.psm1_kin.forward(clean_joints['psm1'].position)
+            ecm_pos, ecm_rot = forward_kinematics(self.ecm_kin, clean_joints['ecm'].position)
+            ecm_pose = pos_rot_to_homo_mat(ecm_pos, ecm_rot)
 
 
             #Reenu added below lines for dvrk_safety(psm_safety)

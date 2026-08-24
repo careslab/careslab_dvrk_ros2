@@ -64,7 +64,7 @@ class MainGUIConnections(QtWidgets.QMainWindow):
     def autocameraRadioCallback(self):
         try:
             if self.ui.AutocameraRadioBtn.isChecked():
-                self.pubDict["autocamRun"].publish(Bool(True))
+                self.pubDict["autocamRun"].publish(Bool(data=True))
                 self.ui.TrackRight.setVisible(True)
                 self.ui.TrackLeft.setVisible(True)
                 alert = QtWidgets.QMessageBox()
@@ -73,19 +73,19 @@ class MainGUIConnections(QtWidgets.QMainWindow):
             else:
                 self.ui.TrackRight.setVisible(False)
                 self.ui.TrackLeft.setVisible(False)
-                self.pubDict["autocamRun"].publish(Bool(False))
+                self.pubDict["autocamRun"].publish(Bool(data=False))
         except Exception:
             print('Error autocamera callback')
 
     def TrackRightCallback(self):
         try:
-            self.pubDict["autocamTrack"].publish("right")
+            self.pubDict["autocamTrack"].publish(String(data="right"))
         except Exception:
             print('Error TrackRight callback')
             
     def TrackLeftCallback(self):
         try:
-            self.pubDict["autocamTrack"].publish("left")
+            self.pubDict["autocamTrack"].publish(String(data="left"))
         except Exception:
             print('Error TrackLeft callback')
             
